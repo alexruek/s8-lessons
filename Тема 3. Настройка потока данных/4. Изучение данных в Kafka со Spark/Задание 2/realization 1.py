@@ -1,10 +1,11 @@
 from pyspark.sql import SparkSession, DataFrame
-from pyspark.sql import from_json, col
-from pyspark.sql.types import StructType, StructField, DoubleType, StringType, TimestampType
+from pyspark.sql.types import StructType, StructField, StringType, IntegerType, DoubleType, LongType, TimestampType
+from pyspark.sql.functions import from_json, col
 
 # необходимая библиотека с идентификатором в maven
 # вы можете использовать ее с помощью метода .config и опции "spark.jars.packages"
-kafka_lib_id = "org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.0"
+# Указываем версию библиотеки для работы с Kafka
+spark_jars_packages = "org.apache.spark:spark-sql-kafka-0-10_2.12:3.3.0"
 
 # настройки security для кафки
 # вы можете использовать из с помощью метода .options(**kafka_security_options)
@@ -16,22 +17,25 @@ kafka_security_options = {
 
 def spark_init() -> SparkSession:
     """
-        Инициализация SparkSession.
+    Инициализация SparkSession.
     """
     spark = SparkSession.builder \
         .master("local") \
         .appName("Connect to kafka") \
-        .config("spark.jars.packages", kafka_lib_id) \
+        .config("spark.jars.packages", spark_jars_packages) \
         .getOrCreate()
     return spark
 
 
 def load_df(spark: SparkSession) -> DataFrame:
+    """
+        Загрузка данных из Kafka в DataFrame.
+        """
     df = (
-        spark.readStream
+        spark.read
         .format("kafka")
         .option("kafka.bootstrap.servers", "rc1b-2erh7b35n4j4v869.mdb.yandexcloud.net:9091")
-        .option("subscribe", "TOPIC_NAME")
+        .option("subscribe", "persist_topic")
         .options(**kafka_security_options)
         .load()
     )
@@ -40,14 +44,22 @@ def load_df(spark: SparkSession) -> DataFrame:
 
 def transform(df: DataFrame) -> DataFrame:
     """
-            Преобразование DataFrame.
-        """
+        Преобразование DataFrame.
+    """
     # Определяем схему входного сообщения для JSON
     incomming_message_schema = StructType([
-        StructField("client_id", StringType(), True),
-        StructField("timestamp", TimestampType(), True),
-        StructField("lat", DoubleType(), True),
-        StructField("lon", DoubleType(), True)
+        StructField("subscription_id", IntegerType(), True),
+        StructField("name", StringType(), True),
+        StructField("description", StringType(), True),
+        StructField("price", DoubleType(), True),
+        StructField("currency", StringType(), True),
+        StructField("key", StringType(), True),
+        StructField("value", StringType(), True),
+        StructField("topic", StringType(), True),
+        StructField("partition", IntegerType(), True),
+        StructField("offset", LongType(), True),  # Изменено на LongType
+        StructField("timestamp", TimestampType(), True),  # Изменено на TimestampType
+        StructField("timestampType", IntegerType(), True)
     ])
 
     # десериализуем из колонки value сообщения JSON
@@ -55,20 +67,12 @@ def transform(df: DataFrame) -> DataFrame:
 
     return transform_df
 
-
 spark = spark_init()
 
 source_df = load_df(spark)
-output_df = transform(source_df)
+df = transform(source_df)
 
-query = (output_df
-         .writeStream
-         .outputMode("append")
-         .format("console")
-         .option("truncate", False)
-         .trigger(once=True)
-         .start())
-try:
-    query.awaitTermination()
-finally:
-    query.stop()
+
+df.printSchema()
+df.show(truncate=False)
+
