@@ -36,7 +36,7 @@ def load_df(spark: SparkSession) -> DataFrame:
         spark.readStream
         .format("kafka")
         .option("kafka.bootstrap.servers", "rc1b-2erh7b35n4j4v869.mdb.yandexcloud.net:9091")
-        .option("subscribe", "TOPIC_NAME")
+        .option("subscribe", TOPIC_NAME)
         .options(**kafka_security_options)
         .load()
     )
@@ -49,10 +49,10 @@ def transform(df: DataFrame) -> DataFrame:
     """
     # Определяем схему входного сообщения для JSON
     incomming_message_schema = StructType([
-        StructField("client_id", StringType(), True),
-        StructField("timestamp", TimestampType(), True),
-        StructField("lat", DoubleType(), True),
-        StructField("lon", DoubleType(), True)
+        StructField("client_id", StringType()),
+        StructField("timestamp", DoubleType()),
+        StructField("lat", DoubleType()),
+        StructField("lon", DoubleType())
     ])
 
     # десериализуем из колонки value сообщения JSON и удалим дубликаты
@@ -60,6 +60,8 @@ def transform(df: DataFrame) -> DataFrame:
                 .withColumn('value', f.col('value').cast(StringType())) \
                 .withColumn('event', f.from_json(f.col('value'), incomming_message_schema)) \
                 .selectExpr('event.*') \
+                .withColumn('timestamp',
+                    f.from_unixtime(f.col('timestamp'), "yyyy-MM-dd' 'HH:mm:ss.SSS").cast(TimestampType())) \
                 .withWatermark("timestamp", "10 minutes") \
                 .dropDuplicates(["client_id", "timestamp"])
 
